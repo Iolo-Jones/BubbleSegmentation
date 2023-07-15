@@ -3,6 +3,7 @@ import matplotlib.image as image
 import matplotlib.pyplot as plt
 import os
 import cv2 as cv
+from scipy.spatial.distance import pdist, squareform
 
 def import_photos_and_background(directory):
     files = sorted(os.listdir(directory))
@@ -83,13 +84,14 @@ def sharpen_image(im, Nid = 3, t = 0.9):
     sharp_ker = - t*np.ones((Nid,Nid))/Nid**2
     sharp_ker[int((Nid-1)/2), int((Nid-1)/2)] += 1
     sharp_ker /= np.linalg.norm(sharp_ker)
-    return cv.filter2D(src=norm, ddepth=-1, kernel=sharp_ker)
+    return cv.filter2D(src=im, ddepth=-1, kernel=sharp_ker)
 
-def compute_constellation(im, lower_bound = 10, upper_bound = 200, radius_rate = 5):
+def compute_constellation(im, parameters, default_bubble_shape = [0.7,0.85,0.95,1]):
     constellation = []
+    lower_bound, upper_bound, radius_rate = parameters['sampling_params']
     for N in range(lower_bound,upper_bound,radius_rate):
-        bubbleker = bubble_kernel([a,b,c,d], N)
-        conv = cv.filter2D(src=thres_image, ddepth=-1, kernel=bubbleker)
+        bubbleker = bubble_kernel(default_bubble_shape, N)
+        conv = cv.filter2D(src=im, ddepth=-1, kernel=bubbleker)
         conv /= N
         constellation.append(conv)
     return np.array(constellation)
@@ -102,12 +104,12 @@ def threshold_constellation(cons, threshold):
     return np.array(constellation_thres, dtype = np.uint8)
 
 def stack_constellation(cons):
-    constellation_stack = constellation_thres.sum(axis = 0)
+    constellation_stack = cons.sum(axis = 0)
     return np.array(constellation_stack>0, dtype = np.uint8)
 
 def erode(im, erosion_size = 2):
     eroding_kernel = cv.getStructuringElement(cv.MORPH_RECT, (erosion_size,erosion_size))
-    return cv.erode(constellation_stack, eroding_kernel)
+    return cv.erode(im, eroding_kernel)
 
 def distribution_from_constellation(cons):
     dist = []
@@ -117,8 +119,9 @@ def distribution_from_constellation(cons):
     dist = np.array(dist)
     return dist/dist.sum()
 
-def compute_bubble_centres(constellation_thres, constellation_stack, radius_rate, lower_bound, verbose = True):
+def compute_bubble_centres(constellation_thres, constellation_stack, number, labels, parameters, verbose = True):
     centres = []
+    lower_bound, _, radius_rate = parameters['sampling_params']
     for k in range(1,number):
         if k % 200 == 0 and verbose:
             print('computing bubble %d of %d' %(k, number))
@@ -143,3 +146,41 @@ def plot_bubbles_on_image(im, centres):
         y, x, r = centre
         circle = plt.Circle((x, y), r, color='r', alpha = 0.5, fill=False)
         ax.add_patch(circle)
+
+def plot_constellation_threshold(parameters):
+    t0, t100 = parameters['constellation_threshold']
+    lower_bound, upper_bound, radius_rate = parameters['sampling_params']
+    rads = np.arange(lower_bound, upper_bound, radius_rate)
+    thres = t0 + (t100 - t0)*rads/100
+    plt.plot(rads, thres)
+    plt.show()
+
+def threshold_constellation(cons, parameters):
+    t0, t100 = parameters['constellation_threshold']
+    lower_bound, upper_bound, radius_rate = parameters['sampling_params']
+    rads = np.arange(lower_bound, upper_bound, radius_rate)
+    threshold = t0 + (t100 - t0)*rads/100
+    constellation_thres = []
+    for k, layer in enumerate(cons):
+        _, thres = cv.threshold(layer, threshold[k], 1, cv.THRESH_BINARY)
+        constellation_thres.append(thres)
+    return np.array(constellation_thres, dtype = np.uint8)
+
+
+def remove_contained_bubbles(centres):
+    x, y, r = centres.transpose()
+    xx = squareform(pdist(x.reshape(-1,1)))**2
+    yy = squareform(pdist(y.reshape(-1,1)))**2
+    rr = squareform(pdist(r.reshape(-1,1)))**2
+    contained = xx + yy < rr
+    contained_indices = contained.nonzero()
+
+    smaller_indices = []
+    for i in range(contained_indices[0].shape[0]):
+        bubble1 = centres[contained_indices[0][i]]
+        bubble2 = centres[contained_indices[1][i]]
+        smaller = np.argmin([bubble1[2], bubble2[2]])
+        index_pairs = [contained_indices[0][i], contained_indices[1][i]]
+        smaller_indices.append(index_pairs[smaller])
+    smaller_indices = np.unique(smaller_indices)
+    return np.delete(centres, smaller_indices, axis = 0)
