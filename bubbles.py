@@ -75,6 +75,31 @@ def bubble_kernel(params, N):
     bub -= bub.mean()
     return bub / np.linalg.norm(bub)
 
+def empirical_kernel(im, centres):
+    bubbles = []
+    for centre in centres:
+        x, y, r = centre
+        r = np.ceil(r)
+        k = 1
+        x1 = int(x-r-k)
+        x2 = int(x+r+k)
+        y1 = int(y-r-k)
+        y2 = int(y+r+k)
+        if (x1 >= 0) and (x2 <= 1600) and (y1 >= 0) and (y2 <= 1200):
+            bubble = im[x1:x2,y1:y2]
+            bubbles.append(cv.resize(bubble, [100,100]))
+
+    bubbles = np.array(bubbles)
+    mean_bubble = bubbles.mean(axis = 0)
+
+    new_bubble_kernel = np.mean([mean_bubble, 
+                                    np.rot90(mean_bubble), 
+                                    np.rot90(mean_bubble, 2), 
+                                    np.rot90(mean_bubble, 3)], axis = 0)
+    new_bubble_kernel = np.mean([new_bubble_kernel, new_bubble_kernel.transpose()], axis = 0)
+    new_bubble_kernel -= new_bubble_kernel.mean()
+    return new_bubble_kernel / np.linalg.norm(new_bubble_kernel)
+
 def normalise_brightness(im, Nid = 100):
     idker = np.ones((Nid,Nid))/Nid**2
     norm_map = cv.filter2D(src=im, ddepth=-1, kernel=idker)
@@ -130,11 +155,10 @@ def compute_bubble_centres(constellation_thres, constellation_stack, number, lab
         x, y = np.array(np.round(np.median(cluster, axis = 0)), dtype = int)
         # rad = cluster[:,0]
         # r, y, x = np.median(cluster[rad == rad[-1]], axis = 0)
-        try:
-            r = constellation_thres[:, x, y].nonzero()[0].mean()
-            centres.append([x, y, (radius_rate*r + lower_bound)*c/2])
-        except:
-            pass
+        r = constellation_thres[:, x, y].nonzero()[0]
+        if r.shape[0] > 0:
+            r = r.mean()
+            centres.append([x, y, (radius_rate*r + lower_bound)*0.95/2])
     if verbose:
         print('Done')
     return np.array(centres)
