@@ -1,45 +1,13 @@
 import numpy as np
-import matplotlib.image as image
-import matplotlib.pyplot as plt
-import os
 import cv2 as cv
 from scipy.spatial.distance import pdist, squareform
 
-def import_photos_and_background(directory):
-    files = sorted(os.listdir(directory))
-    pics = []
-    for n in files:
-        if n.endswith('.jpeg') or n.endswith('.jpg'):
-            im = image.imread(directory + '/' + n)
-            pics.append(im)
-    return np.array(pics)/255
-
-def plot_images(arrays, cmap = 'Greys_r'):
-    if type(arrays) == list:
-        n = len(arrays)
-        fig, ax = plt.subplots(1,n, figsize = (10, 10*n))
-        if n > 1:
-            for k, array in enumerate(arrays):
-                plt.set_cmap(cmap)
-                ax[k].axis('off')
-                if array.max() > 1:
-                    ax[k].imshow(array/array.max())
-                else:
-                    ax[k].imshow(array)
-        else:
-            plt.set_cmap(cmap)
-            ax.axis('off')
-            ax.imshow(arrays[0])
-        plt.show()
-    else:
-        fig, ax = plt.subplots(figsize = (10, 10))
-        plt.set_cmap(cmap)
-        ax.axis('off')
-        if arrays.max() > 1:
-            ax.imshow(arrays/arrays.max())
-        else:
-            ax.imshow(arrays)
-        plt.show()
+parameters = {}
+parameters['sampling_params'] = [10, 400, 5]
+parameters['constellation_threshold'] = 0
+parameters['image_threshold'] = -0.04
+parameters['erosion_size'] = 2
+parameters['bubble_scale_factor'] = 1
 
 def greyscale(ims):
     greys = []
@@ -75,7 +43,7 @@ def bubble_kernel(params, N):
     bub -= bub.mean()
     return bub / np.linalg.norm(bub)
 
-def empirical_kernel(im, centres):
+# def empirical_kernel(im, centres):
     bubbles = []
     for centre in centres:
         x, y, r = centre
@@ -111,11 +79,14 @@ def sharpen_image(im, Nid = 3, t = 0.9):
     sharp_ker /= np.linalg.norm(sharp_ker)
     return cv.filter2D(src=im, ddepth=-1, kernel=sharp_ker)
 
-def compute_constellation(im, parameters, default_bubble_shape = [0.7,0.85,0.95,1]):
+def compute_constellation(im, parameters, kernel = None, default_bubble_shape = [0.7,0.85,0.95,1]):
     constellation = []
     lower_bound, upper_bound, radius_rate = parameters['sampling_params']
     for N in range(lower_bound,upper_bound,radius_rate):
-        bubbleker = bubble_kernel(default_bubble_shape, N)
+        if kernel is None:
+            bubbleker = bubble_kernel(default_bubble_shape, N)
+        else:
+            bubbleker = kernel
         conv = cv.filter2D(src=im, ddepth=-1, kernel=bubbleker)
         conv /= N
         constellation.append(conv)
@@ -136,7 +107,7 @@ def erode(im, erosion_size = 2):
     eroding_kernel = cv.getStructuringElement(cv.MORPH_RECT, (erosion_size,erosion_size))
     return cv.erode(im, eroding_kernel)
 
-def distribution_from_constellation(cons):
+# def distribution_from_constellation(cons):
     dist = []
     for layer in cons:
         n, _ = cv.connectedComponents(layer, 8)
@@ -149,7 +120,7 @@ def compute_bubble_centres(constellation_thres, constellation_stack, number, lab
     lower_bound, _, radius_rate = parameters['sampling_params']
     for k in range(1,number):
         if k % 200 == 0 and verbose:
-            print('computing bubble %d of %d' %(k, number))
+            print('Computing bubble %d of %d' %(k, number))
         mask = (labels == k)
         cluster = np.transpose((constellation_stack * mask).nonzero())
         x, y = np.array(np.round(np.median(cluster, axis = 0)), dtype = int)
@@ -161,35 +132,18 @@ def compute_bubble_centres(constellation_thres, constellation_stack, number, lab
             centres.append([x, y, (radius_rate*r + lower_bound)*0.95/2])
     if verbose:
         print('Done')
-    return np.array(centres)
+    centres = np.array(centres)
+    return remove_contained_bubbles(centres)
 
-def plot_bubbles_on_image(im, centres):
-    fig, ax = plt.subplots(figsize = (10,10))
-    ax.imshow(im)
-    for centre in centres:
-        y, x, r = centre
-        circle = plt.Circle((x, y), r, color='r', alpha = 0.5, fill=False)
-        ax.add_patch(circle)
-
-def plot_constellation_threshold(parameters):
-    t0, t100 = parameters['constellation_threshold']
+def threshold_constellation(cons, bvf, parameters):
     lower_bound, upper_bound, radius_rate = parameters['sampling_params']
     rads = np.arange(lower_bound, upper_bound, radius_rate)
-    thres = t0 + (t100 - t0)*rads/100
-    plt.plot(rads, thres)
-    plt.show()
-
-def threshold_constellation(cons, parameters):
-    t0, t100 = parameters['constellation_threshold']
-    lower_bound, upper_bound, radius_rate = parameters['sampling_params']
-    rads = np.arange(lower_bound, upper_bound, radius_rate)
-    threshold = t0 + (t100 - t0)*rads/100
+    threshold = threshold_model(rads,bvf) + parameters['constellation_threshold']
     constellation_thres = []
     for k, layer in enumerate(cons):
         _, thres = cv.threshold(layer, threshold[k], 1, cv.THRESH_BINARY)
         constellation_thres.append(thres)
     return np.array(constellation_thres, dtype = np.uint8)
-
 
 def remove_contained_bubbles(centres):
     x, y, r = centres.transpose()
@@ -208,3 +162,59 @@ def remove_contained_bubbles(centres):
         smaller_indices.append(index_pairs[smaller])
     smaller_indices = np.unique(smaller_indices)
     return np.delete(centres, smaller_indices, axis = 0)
+
+def norm_sharp_thres(im, parameters):
+    norm = normalise_brightness(im)
+    sharpened = sharpen_image(norm)
+    return threshold_image(sharpened, parameters['image_threshold'])
+
+def poly_through_points(points):
+    x, y = points.transpose()
+    n = x.shape[0]
+    A = x.reshape(-1,1)**np.arange(n)
+    coeffs = np.linalg.solve(A, y)
+
+    def poly(x):
+        n = coeffs.shape[0]
+        return x.reshape(-1,1)**np.arange(n) @ coeffs
+    
+    return poly
+
+def partition_function(x, a, b):
+    x1 = np.max([np.zeros(x.shape), (x-a)/(b-a)], axis = 0)
+    return np.min([x1,np.ones(x.shape)], axis = 0)
+
+def threshold_model(X, bvf):
+    x = X + 45*bvf
+    poly_points = np.array([[0,0.13], 
+                            [30,0.16], 
+                            [60,0.2],
+                            [100,0.2],
+                            [140,0.165],
+                            [170,0.155], 
+                            [210,0.15]
+                            ])
+    poly = poly_through_points(poly_points)(x)
+
+    part1 = partition_function(x, 15, 25)
+    part2 = partition_function(x, 145, 170)
+
+    return np.min([part1 * (1-part2) * poly + (1-part1) * 0.14 + part2 * 0.155, #- 0.01,
+                   0.2*np.ones(x.shape)], axis = 0)
+
+def bubbles_from_image(im, parameters, bvf, verbose=True):
+    thres_image = norm_sharp_thres(im, parameters)
+    constellation = compute_constellation(thres_image, parameters)
+    constellation_thres = threshold_constellation(constellation, bvf, parameters)
+    constellation_stack = stack_constellation(constellation_thres)
+    constellation_stack = erode(constellation_stack, parameters['erosion_size'])
+    if verbose:
+        print('Finding bubble centres')
+    number, labels = cv.connectedComponents(constellation_stack, 8)
+    centres = compute_bubble_centres(constellation_thres, 
+                                 constellation_stack, 
+                                 number, 
+                                 labels, 
+                                 parameters,
+                                 verbose=verbose)
+    return centres * np.array([1,1,parameters['bubble_scale_factor']])
