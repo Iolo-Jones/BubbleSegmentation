@@ -44,29 +44,29 @@ def bubble_kernel(params, N):
     return bub / np.linalg.norm(bub)
 
 # def empirical_kernel(im, centres):
-    bubbles = []
-    for centre in centres:
-        x, y, r = centre
-        r = np.ceil(r)
-        k = 1
-        x1 = int(x-r-k)
-        x2 = int(x+r+k)
-        y1 = int(y-r-k)
-        y2 = int(y+r+k)
-        if (x1 >= 0) and (x2 <= 1600) and (y1 >= 0) and (y2 <= 1200):
-            bubble = im[x1:x2,y1:y2]
-            bubbles.append(cv.resize(bubble, [100,100]))
+#     bubbles = []
+#     for centre in centres:
+#         x, y, r = centre
+#         r = np.ceil(r)
+#         k = 1
+#         x1 = int(x-r-k)
+#         x2 = int(x+r+k)
+#         y1 = int(y-r-k)
+#         y2 = int(y+r+k)
+#         if (x1 >= 0) and (x2 <= 1600) and (y1 >= 0) and (y2 <= 1200):
+#             bubble = im[x1:x2,y1:y2]
+#             bubbles.append(cv.resize(bubble, [100,100]))
 
-    bubbles = np.array(bubbles)
-    mean_bubble = bubbles.mean(axis = 0)
+#     bubbles = np.array(bubbles)
+#     mean_bubble = bubbles.mean(axis = 0)
 
-    new_bubble_kernel = np.mean([mean_bubble, 
-                                    np.rot90(mean_bubble), 
-                                    np.rot90(mean_bubble, 2), 
-                                    np.rot90(mean_bubble, 3)], axis = 0)
-    new_bubble_kernel = np.mean([new_bubble_kernel, new_bubble_kernel.transpose()], axis = 0)
-    new_bubble_kernel -= new_bubble_kernel.mean()
-    return new_bubble_kernel / np.linalg.norm(new_bubble_kernel)
+#     new_bubble_kernel = np.mean([mean_bubble, 
+#                                     np.rot90(mean_bubble), 
+#                                     np.rot90(mean_bubble, 2), 
+#                                     np.rot90(mean_bubble, 3)], axis = 0)
+#     new_bubble_kernel = np.mean([new_bubble_kernel, new_bubble_kernel.transpose()], axis = 0)
+#     new_bubble_kernel -= new_bubble_kernel.mean()
+#     return new_bubble_kernel / np.linalg.norm(new_bubble_kernel)
 
 def normalise_brightness(im, Nid = 100):
     idker = np.ones((Nid,Nid))/Nid**2
