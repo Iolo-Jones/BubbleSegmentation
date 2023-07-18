@@ -50,11 +50,3 @@ def plot_bubbles_on_image(im, centres, scale_factor=1):
         y, x, r = centre
         circle = plt.Circle((x, y), r*scale_factor, color='r', alpha = 0.5, fill=False)
         ax.add_patch(circle)
-
-def plot_constellation_threshold(parameters):
-    t0, t100 = parameters['constellation_threshold']
-    lower_bound, upper_bound, radius_rate = parameters['sampling_params']
-    rads = np.arange(lower_bound, upper_bound, radius_rate)
-    thres = t0 + (t100 - t0)*rads/100
-    plt.plot(rads, thres)
-    plt.show()

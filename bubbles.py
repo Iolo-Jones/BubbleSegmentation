@@ -108,12 +108,12 @@ def erode(im, erosion_size = 2):
     return cv.erode(im, eroding_kernel)
 
 # def distribution_from_constellation(cons):
-    dist = []
-    for layer in cons:
-        n, _ = cv.connectedComponents(layer, 8)
-        dist.append(n)
-    dist = np.array(dist)
-    return dist/dist.sum()
+#     dist = []
+#     for layer in cons:
+#         n, _ = cv.connectedComponents(layer, 8)
+#         dist.append(n)
+#     dist = np.array(dist)
+#     return dist/dist.sum()
 
 def compute_bubble_centres(constellation_thres, constellation_stack, number, labels, parameters, verbose = True):
     centres = []
